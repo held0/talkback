@@ -14,7 +14,7 @@ Talkback is a Claude Code plugin that automatically reads Claude's text response
 
 ## Architecture: Hook + Config
 
-Uses an `AssistantResponse` hook that fires on every Claude response. A shell script reads config, sends text to local Kokoro API, plays audio. No persistent server process beyond Kokoro itself.
+Uses a `Stop` hook that fires when Claude finishes responding, providing `last_assistant_message` via JSON stdin. A shell script reads config, sends text to local Kokoro API, plays audio. No persistent server process beyond Kokoro itself.
 
 ## Plugin Structure
 
@@ -24,7 +24,7 @@ talkback/
 │   ├── plugin.json              # Plugin manifest
 │   └── marketplace.json         # Marketplace catalog (for distribution)
 ├── hooks/
-│   └── hooks.json               # AssistantResponse hook definition
+│   └── stop.json                 # Stop hook definition
 ├── scripts/
 │   ├── speak.sh                 # Main: text → Kokoro API → audio playback
 │   ├── setup-kokoro.sh          # Auto-install Kokoro (Docker/pip fallback)
@@ -46,26 +46,27 @@ talkback/
 
 ```json
 {
-  "hooks": [
-    {
-      "matcher": {
-        "event": "AssistantResponse"
-      },
-      "hooks": [
-        {
-          "type": "command",
-          "command": "$PLUGIN_DIR/scripts/speak.sh"
-        }
-      ]
-    }
-  ]
+  "description": "Talkback TTS - reads Claude responses aloud via Kokoro",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/speak.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
 ### Flow
 
-1. Claude writes response → `AssistantResponse` event fires
-2. Hook calls `speak.sh` with response text via stdin
+1. Claude finishes response → `Stop` event fires
+2. Hook calls `speak.sh` with JSON via stdin (contains `last_assistant_message`)
 3. `speak.sh` reads config from `~/.config/talkback/config.json`
 4. If enabled: POST text to Kokoro at `http://localhost:8880/v1/audio/speech`
 5. Kokoro returns audio → played via `afplay` (macOS) / `aplay` (Linux)
