@@ -1,0 +1,16 @@
+{
+  "description": "Talkback TTS - reads Claude responses aloud via Kokoro",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/speak.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
