@@ -1,0 +1,12 @@
+{
+  "name": "talkback",
+  "description": "Automatic text-to-speech for Claude Code responses using local Kokoro TTS",
+  "version": "0.1.0",
+  "author": {
+    "name": "talkback"
+  },
+  "license": "MIT",
+  "keywords": ["tts", "voice", "speech", "kokoro", "accessibility"],
+  "skills": "./skills/",
+  "hooks": ["./hooks/stop.json"]
+}

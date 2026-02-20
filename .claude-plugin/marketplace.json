@@ -1,0 +1,18 @@
+{
+  "name": "talkback",
+  "metadata": {
+    "description": "Talkback - Automatic voice output for Claude Code"
+  },
+  "owner": {
+    "name": "talkback"
+  },
+  "plugins": [
+    {
+      "name": "talkback",
+      "description": "Automatic text-to-speech for Claude Code responses using local Kokoro TTS. Zero cost, fully offline.",
+      "version": "0.1.0",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}
