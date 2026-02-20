@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 CONFIG_DIR="${HOME}/.config/talkback"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
-PLUGIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Read hook input from stdin
-INPUT=$(cat)
+# Read hook input from stdin into a temp file (avoids bash string mangling)
+INPUT_FILE=$(mktemp /tmp/talkback_input_XXXXXX.json)
+cat > "$INPUT_FILE"
 
 # Load config (or defaults if no config exists)
 if [ -f "$CONFIG_FILE" ]; then
@@ -25,21 +25,23 @@ fi
 
 # Exit silently if disabled
 if [ "$ENABLED" != "true" ]; then
+  rm -f "$INPUT_FILE"
   exit 0
 fi
 
-# Extract the assistant message from hook input
-MESSAGE=$(echo "$INPUT" | jq -r '.last_assistant_message // empty')
+# Extract the assistant message from hook input (read from file, not variable)
+MESSAGE=$(jq -r '.last_assistant_message // empty' "$INPUT_FILE" 2>/dev/null || true)
+rm -f "$INPUT_FILE"
 
 if [ -z "$MESSAGE" ]; then
   exit 0
 fi
 
 # Truncate to max chars
-MESSAGE=$(echo "$MESSAGE" | head -c "$MAX_CHARS")
+MESSAGE=$(printf '%s' "$MESSAGE" | head -c "$MAX_CHARS")
 
 # Strip markdown formatting for cleaner speech
-MESSAGE=$(echo "$MESSAGE" | sed 's/```[^`]*```//g' | sed 's/`[^`]*`//g' | sed 's/[#*_~>]//g')
+MESSAGE=$(printf '%s' "$MESSAGE" | sed 's/```[^`]*```//g' | sed 's/`[^`]*`//g' | sed 's/[#*_~>]//g')
 
 # Skip if message is too short after cleanup
 if [ ${#MESSAGE} -lt 5 ]; then
@@ -54,17 +56,15 @@ fi
 # Create temp file for audio
 AUDIO_FILE=$(mktemp /tmp/talkback_XXXXXX.mp3)
 
+# Build JSON payload safely (pipe message through jq to handle special chars)
+JSON_PAYLOAD=$(printf '%s' "$MESSAGE" | jq -Rs --arg voice "$VOICE" --argjson speed "$SPEED" \
+  '{model: "kokoro", input: ., voice: $voice, speed: $speed, response_format: "mp3"}')
+
 # Send to Kokoro TTS API (OpenAI-compatible)
 HTTP_CODE=$(curl -s -w "%{http_code}" -o "$AUDIO_FILE" \
   -X POST "${KOKORO_URL}/v1/audio/speech" \
   -H "Content-Type: application/json" \
-  -d "$(jq -n \
-    --arg model "kokoro" \
-    --arg input "$MESSAGE" \
-    --arg voice "$VOICE" \
-    --argjson speed "$SPEED" \
-    '{model: $model, input: $input, voice: $voice, speed: $speed, response_format: "mp3"}'
-  )")
+  -d "$JSON_PAYLOAD")
 
 if [ "$HTTP_CODE" != "200" ]; then
   rm -f "$AUDIO_FILE"

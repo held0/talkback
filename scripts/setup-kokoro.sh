@@ -21,7 +21,7 @@ if curl -s --max-time 3 "${KOKORO_URL}/v1/models" > /dev/null 2>&1; then
   exit 0
 fi
 
-# Step 2: Try Docker (only if daemon is running)
+# Step 2: Try Docker (only if daemon is actually running)
 if command -v docker &> /dev/null && docker info > /dev/null 2>&1; then
   echo "Docker found and running. Starting Kokoro TTS container..."
   docker rm -f talkback-kokoro 2>/dev/null || true
@@ -29,7 +29,7 @@ if command -v docker &> /dev/null && docker info > /dev/null 2>&1; then
     --name talkback-kokoro \
     -p 8880:8880 \
     --restart unless-stopped \
-    ghcr.io/remsky/kokoro-fastapi-cpu:v0.4.6 \
+    ghcr.io/remsky/kokoro-fastapi-cpu:latest \
     > /dev/null 2>&1; then
     echo "Waiting for Kokoro to start..."
     for i in $(seq 1 30); do
@@ -46,8 +46,8 @@ if command -v docker &> /dev/null && docker info > /dev/null 2>&1; then
       fi
       sleep 2
     done
-    echo "WARNING: Kokoro container started but API not reachable after 60s"
-    echo "Check: docker logs talkback-kokoro"
+    echo "WARNING: Kokoro container started but API not reachable after 60s."
+    echo "Trying pip fallback..."
   else
     echo "Docker run failed. Trying pip fallback..."
   fi
@@ -55,17 +55,21 @@ elif command -v docker &> /dev/null; then
   echo "Docker installed but daemon not running. Trying pip fallback..."
 fi
 
-# Step 3: Try pip
-if command -v python3 &> /dev/null && command -v pip3 &> /dev/null; then
-  echo "Python found. Installing kokoro-fastapi via pip..."
-  pip3 install kokoro-fastapi 2>&1
+# Step 3: Try pip (in venv to avoid system Python restrictions)
+if command -v python3 &> /dev/null; then
+  VENV_DIR="${CONFIG_DIR}/venv"
+  echo "Python found. Setting up Kokoro in virtual environment..."
   mkdir -p "$CONFIG_DIR"
-  echo "Starting Kokoro server..."
-  nohup python3 -m kokoro_fastapi --host 0.0.0.0 --port 8880 > "${CONFIG_DIR}/kokoro.log" 2>&1 &
+  python3 -m venv "$VENV_DIR" 2>&1
+  echo "Installing kokoro TTS library (this may take a few minutes)..."
+  "${VENV_DIR}/bin/pip" install --upgrade pip > /dev/null 2>&1
+  "${VENV_DIR}/bin/pip" install kokoro soundfile numpy 2>&1
+  echo "Starting Kokoro TTS server..."
+  nohup "${VENV_DIR}/bin/python" "${PLUGIN_DIR}/scripts/kokoro-server.py" --port 8880 > "${CONFIG_DIR}/kokoro.log" 2>&1 &
   KOKORO_PID=$!
   echo "$KOKORO_PID" > "${CONFIG_DIR}/kokoro.pid"
-  echo "Waiting for Kokoro to start..."
-  for i in $(seq 1 60); do
+  echo "Waiting for Kokoro to start (first run downloads the model, may take a minute)..."
+  for i in $(seq 1 120); do
     if curl -s --max-time 2 "${KOKORO_URL}/v1/models" > /dev/null 2>&1; then
       echo "Kokoro started successfully! (PID: $KOKORO_PID)"
       if [ ! -f "$CONFIG_FILE" ]; then
@@ -78,17 +82,18 @@ if command -v python3 &> /dev/null && command -v pip3 &> /dev/null; then
     fi
     sleep 2
   done
-  echo "ERROR: Kokoro installed but API not reachable after 120s"
-  echo "Check: ${CONFIG_DIR}/kokoro.log"
+  echo "ERROR: Kokoro installed but server not reachable after 240s"
+  echo "Check logs: ${CONFIG_DIR}/kokoro.log"
+  echo "Try manually: ${VENV_DIR}/bin/python ${PLUGIN_DIR}/scripts/kokoro-server.py"
   exit 1
 fi
 
 # Step 4: Nothing available
-echo "ERROR: Neither Docker nor Python 3 found."
+echo "ERROR: Neither Docker (running) nor Python 3 found."
 echo ""
-echo "Please install one of:"
-echo "  - Docker: https://docs.docker.com/get-docker/"
-echo "  - Python 3.8+: https://www.python.org/downloads/"
+echo "Please either:"
+echo "  - Start Docker Desktop and run /talkback:setup again"
+echo "  - Install Python 3.8+: https://www.python.org/downloads/"
 echo ""
 echo "Then run /talkback:setup again."
 exit 1
