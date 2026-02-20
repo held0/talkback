@@ -21,34 +21,38 @@ if curl -s --max-time 3 "${KOKORO_URL}/v1/models" > /dev/null 2>&1; then
   exit 0
 fi
 
-# Step 2: Try Docker
-if command -v docker &> /dev/null; then
-  echo "Docker found. Starting Kokoro TTS container..."
+# Step 2: Try Docker (only if daemon is running)
+if command -v docker &> /dev/null && docker info > /dev/null 2>&1; then
+  echo "Docker found and running. Starting Kokoro TTS container..."
   docker rm -f talkback-kokoro 2>/dev/null || true
-  docker run -d \
+  if docker run -d \
     --name talkback-kokoro \
     -p 8880:8880 \
     --restart unless-stopped \
     ghcr.io/remsky/kokoro-fastapi-cpu:v0.4.6 \
-    > /dev/null 2>&1
-  echo "Waiting for Kokoro to start..."
-  for i in $(seq 1 30); do
-    if curl -s --max-time 2 "${KOKORO_URL}/v1/models" > /dev/null 2>&1; then
-      echo "Kokoro started successfully!"
-      mkdir -p "$CONFIG_DIR"
-      if [ ! -f "$CONFIG_FILE" ]; then
-        cp "${PLUGIN_DIR}/config/defaults.json" "$CONFIG_FILE"
-        jq '.install_method = "docker"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    > /dev/null 2>&1; then
+    echo "Waiting for Kokoro to start..."
+    for i in $(seq 1 30); do
+      if curl -s --max-time 2 "${KOKORO_URL}/v1/models" > /dev/null 2>&1; then
+        echo "Kokoro started successfully!"
+        mkdir -p "$CONFIG_DIR"
+        if [ ! -f "$CONFIG_FILE" ]; then
+          cp "${PLUGIN_DIR}/config/defaults.json" "$CONFIG_FILE"
+          jq '.install_method = "docker"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+        fi
+        echo "Config written to ${CONFIG_FILE}"
+        echo "=== Talkback is ready! ==="
+        exit 0
       fi
-      echo "Config written to ${CONFIG_FILE}"
-      echo "=== Talkback is ready! ==="
-      exit 0
-    fi
-    sleep 2
-  done
-  echo "ERROR: Kokoro container started but API not reachable after 60s"
-  echo "Check: docker logs talkback-kokoro"
-  exit 1
+      sleep 2
+    done
+    echo "WARNING: Kokoro container started but API not reachable after 60s"
+    echo "Check: docker logs talkback-kokoro"
+  else
+    echo "Docker run failed. Trying pip fallback..."
+  fi
+elif command -v docker &> /dev/null; then
+  echo "Docker installed but daemon not running. Trying pip fallback..."
 fi
 
 # Step 3: Try pip
