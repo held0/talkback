@@ -9,6 +9,15 @@ log() { echo "$(date '+%H:%M:%S'): $1" >> "$LOG_FILE"; }
 
 log "speak.sh called (PID $$)"
 
+# Prevent duplicate execution with lockfile
+LOCKFILE="/tmp/talkback_speak.lock"
+if ! mkdir "$LOCKFILE" 2>/dev/null; then
+  log "another instance running, skipping (PID $$)"
+  cat > /dev/null  # drain stdin
+  exit 0
+fi
+trap 'rm -rf "$LOCKFILE"' EXIT
+
 # Read hook input from stdin into a temp file (avoids bash string mangling)
 INPUT_FILE="$(mktemp /tmp/talkback_input_XXXXXX).json"
 cat > "$INPUT_FILE"
